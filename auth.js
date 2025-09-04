@@ -1,76 +1,22 @@
-const express = require("express");
-
-const router = express.Router();
-
-const User = require("../models/User");
-
-const bcrypt = require("bcryptjs");
+// checks Authorization: Bearer <token>
 
 const jwt = require("jsonwebtoken");
 
-router.post("/register", async (req, res) => {
-  const { name, email, password } = req.body;
+module.exports = (req, res, next) => {
+  const h = req.headers.authorization;
 
-  if (!name || !email || !password)
-    return res.status(400).json({ message: "Missing fields" });
+  if (!h || !h.startsWith("Bearer "))
+    return res.status(401).json({ message: "No token" });
 
-  try {
-    if (await User.findOne({ email }))
-      return res.status(400).json({ message: "User exists" });
-
-    const hash = await bcrypt.hash(password, 10);
-
-    const user = new User({ name, email, password: hash });
-
-    await user.save();
-
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
-
-    res.json({
-      token,
-      user: { id: user._id, name: user.name, email: user.email },
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password)
-    return res.status(400).json({ message: "Missing fields" });
+  const token = h.split(" ")[1];
 
   try {
-    const user = await User.findOne({ email });
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (!user) return res.status(400).json({ message: "Invalid credentials" });
+    req.userId = decoded.id;
 
-    const ok = await bcrypt.compare(password, user.password);
-
-    if (!ok) return res.status(400).json({ message: "Invalid credentials" });
-
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
-
-    res.json({
-      token,
-      user: { id: user._id, name: user.name, email: user.email },
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
+    next();
+  } catch (e) {
+    return res.status(401).json({ message: "Invalid token" });
   }
-});
-
-router.get("/me", require("../middleware/auth"), async (req, res) => {
-  const user = await User.findById(req.userId).select("-password");
-
-  res.json(user);
-});
-
-module.exports = router;
+};
